@@ -1,4 +1,5 @@
 {
   "name": "qbo-oauth-callback",
-  "private": true
+  "private": true,
+  "type": "module"
 }
