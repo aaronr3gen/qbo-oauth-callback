@@ -22,7 +22,7 @@ The other registered redirects can remain during migration. Do not use the `tryc
 
 - ChatGPT authenticates to the MCP resource through an Auth0 OAuth 2.1 authorization server.
 - Every MCP request validates the JWT signature, issuer, audience, expiry, and scopes.
-- Intuit client credentials exist only in Vercel encrypted environment variables.
+- Intuit client credentials are kept in Bitwarden Secrets Manager as the source of truth and copied into Vercel Sensitive environment variables for deployment.
 - Intuit access and refresh tokens are encrypted with AES-256-GCM before Postgres storage.
 - Refresh is serialized with a database row lock, preventing concurrent use of the same rotating Intuit refresh token.
 - QuickBooks connection links are signed, one-time, and expire after 10 minutes.
@@ -63,7 +63,15 @@ The MCP protected-resource metadata points ChatGPT to the Auth0 issuer. The audi
 
 ## 3. Configure Vercel secrets
 
-Open the `qbo-oauth-callback` Vercel project, then go to **Settings → Environment Variables**. Add the variables below to Production and Preview as appropriate. Never paste them into ChatGPT, commit them, or place them in plugin configuration.
+### Recommended ownership model
+
+Use a Bitwarden Secrets Manager project named `QBO MCP - Production` as the source of truth. Create one secret for each exact name in the table below. Give human administrators access through a Bitwarden group, not direct one-off assignments.
+
+The application should not call Bitwarden on every request. Serverless runtime retrieval would add latency and an extra availability dependency, and the Bitwarden machine access token would still need to be bootstrapped into Vercel. Instead, copy or synchronize the secrets into Vercel at deployment/rotation time.
+
+If deployment synchronization is automated, create a dedicated Bitwarden machine account named `qbo-mcp-vercel-prod`, grant it **read-only** access to only `QBO MCP - Production`, issue a short-lived access token, and store that single bootstrap token as a protected GitHub Actions secret named `BW_ACCESS_TOKEN`. Do not grant the machine account write access. Rotate or revoke its token independently of the application secrets.
+
+Open the `qbo-oauth-callback` Vercel project, then go to **Settings → Environment Variables**. Add the variables below to Production and Preview as appropriate. Mark the secret-bearing entries as **Sensitive**, so their values cannot be read back from the dashboard. Never paste them into ChatGPT, commit them, or place them in plugin configuration.
 
 | Exact name | Location/value |
 | --- | --- |
@@ -81,13 +89,32 @@ Open the `qbo-oauth-callback` Vercel project, then go to **Settings → Environm
 | `QBO_MCP_RESOURCE` | `https://qbo-oauth-callback-orcin.vercel.app` |
 | `QBO_PUBLIC_BASE_URL` | `https://qbo-oauth-callback-orcin.vercel.app` |
 
-After adding/changing secrets, redeploy. Vercel encrypts environment variable values at rest and injects them only into the function runtime.
+Treat `QBO_CLIENT_SECRET`, `DATABASE_URL`, `TOKEN_ENCRYPTION_KEY`, and `CONNECT_STATE_SECRET` as high-sensitivity secrets. `QBO_CLIENT_ID` is an identifier but can remain in Bitwarden for completeness. The URL, environment, version, audience, resource, and Auth0 issuer values are configuration. After adding or changing a value, redeploy and run the health and OAuth metadata checks below.
+
+Do not put Intuit access or refresh tokens in Bitwarden or Vercel. They are per-user, rotating application data and the server stores them as encrypted rows in Postgres.
+
+For local development, install Bitwarden's `bws` CLI and run the trusted development command with only this project injected:
+
+```bash
+export BWS_ACCESS_TOKEN="set this in your local shell, not in a file"
+bws run --project-id <QBO_MCP_PRODUCTION_PROJECT_ID> -- 'npx vercel dev'
+```
+
+Secret names are already POSIX-compatible, so `bws run` will expose them under the names the application expects. Do not print the environment, enable shell tracing, or run unreviewed commands inside `bws run`.
+
+### Rotation order
+
+1. Create the replacement value at its provider (Intuit, Auth0, database, or locally generated encryption/signing key).
+2. Update the corresponding Bitwarden secret.
+3. Update the matching Vercel Sensitive environment variable and redeploy.
+4. Verify health, authentication, a QBO sandbox read, and—where relevant—the staged write flow.
+5. Revoke the old provider credential only after the new deployment is confirmed.
+
+Rotating `TOKEN_ENCRYPTION_KEY` requires a data migration because existing token and proposal ciphertext must be decrypted with the old key and re-encrypted with the new key. Do not overwrite that key in place. Increment `TOKEN_ENCRYPTION_KEY_VERSION` and run a controlled re-encryption migration first.
 
 ## 4. Intuit production settings
 
 Keep the existing Vercel redirect URI. Once the consolidated service is verified, consider removing the temporary Cloudflare tunnel URI. The OAuth playground URI is useful for manual diagnostics but should not be used by this service.
-
-Because a credential-bearing `.env` was previously tracked in `aaronr3gen/qbo-mcp-server`, rotate the Intuit production client secret and revoke/reconnect any exposed refresh token before enabling writes. Removing the file from the current branch is not enough to remove it from Git history.
 
 ## 5. Deploy and test
 
