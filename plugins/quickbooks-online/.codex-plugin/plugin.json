@@ -1,0 +1,27 @@
+{
+  "name": "quickbooks-online",
+  "version": "1.0.0",
+  "description": "Securely read and write QuickBooks Online through a hosted MCP server.",
+  "author": {
+    "name": "Regen Financial",
+    "url": "https://regenfinancial.com"
+  },
+  "repository": "https://github.com/aaronr3gen/qbo-oauth-callback",
+  "license": "MIT",
+  "keywords": ["quickbooks", "accounting", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "QuickBooks Online",
+    "shortDescription": "Secure QBO accounting tools.",
+    "longDescription": "Read QuickBooks Online records and reports, connect multiple companies, and stage writes for explicit approval before execution.",
+    "developerName": "Regen Financial",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write", "OAuth"],
+    "defaultPrompt": [
+      "Show my QuickBooks companies.",
+      "Run a profit and loss report.",
+      "Prepare an invoice for approval."
+    ]
+  }
+}
