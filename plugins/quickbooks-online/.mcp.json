@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "quickbooks-online": {
+      "type": "http",
+      "url": "https://qbo-oauth-callback-orcin.vercel.app/api/mcp"
+    }
+  }
+}
