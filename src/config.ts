@@ -4,8 +4,9 @@ function required(name: string): string {
   return value;
 }
 
-function normalizedUrl(name: string): string {
-  const value = required(name).replace(/\/+$/, "");
+function normalizedUrl(name: string, preserveTrailingSlash = false): string {
+  const raw = required(name);
+  const value = preserveTrailingSlash ? raw : raw.replace(/\/+$/, "");
   const url = new URL(value);
   if (url.protocol !== "https:") throw new Error(`${name} must use HTTPS`);
   return value;
@@ -53,8 +54,8 @@ export function getConfig(): AppConfig {
     tokenEncryptionKeyVersion: process.env.TOKEN_ENCRYPTION_KEY_VERSION?.trim() || "1",
     connectStateSecret: required("CONNECT_STATE_SECRET"),
     auth0Issuer: issuer,
-    auth0Audience: normalizedUrl("AUTH0_AUDIENCE"),
-    mcpResource: normalizedUrl("QBO_MCP_RESOURCE"),
+    auth0Audience: normalizedUrl("AUTH0_AUDIENCE", true),
+    mcpResource: normalizedUrl("QBO_MCP_RESOURCE", true),
     publicBaseUrl: normalizedUrl("QBO_PUBLIC_BASE_URL"),
   };
 
