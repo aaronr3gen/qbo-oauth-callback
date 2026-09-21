@@ -34,9 +34,12 @@ export async function authenticateRequest(req: VercelRequest): Promise<RequestId
   const config = getConfig();
   jwks ||= createRemoteJWKSet(new URL(".well-known/jwks.json", config.auth0Issuer));
   try {
+    const audienceWithoutTrailingSlash = config.auth0Audience.replace(/\/+$/, "");
     const verified = await jwtVerify(token, jwks, {
       issuer: config.auth0Issuer,
-      audience: config.auth0Audience,
+      // Accept the current resource identifier and the earlier form without
+      // a trailing slash. ChatGPT can keep a cached token during reconnects.
+      audience: [...new Set([config.auth0Audience, audienceWithoutTrailingSlash])],
     });
     if (!verified.payload.sub) return null;
     const scopeString = typeof verified.payload.scope === "string" ? verified.payload.scope : "";
