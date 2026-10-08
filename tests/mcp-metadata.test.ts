@@ -24,10 +24,16 @@ test("MCP advertises the bounded tool surface and destructive execution hint", a
       "qbo_run_report",
       "qbo_prepare_write",
       "qbo_execute_write",
+      "qbo_prepare_write_batch",
+      "qbo_execute_write_batch",
     ]);
     const execute = result.tools.find((tool) => tool.name === "qbo_execute_write");
     assert.equal(execute?.annotations?.readOnlyHint, false);
     assert.equal(execute?.annotations?.destructiveHint, true);
+    assert.ok(!("confirmation" in (execute?.inputSchema.properties ?? {})));
+    assert.deepEqual(execute?.inputSchema.required, ["proposalId", "approved"]);
+    const rejected = await client.callTool({ name: "qbo_execute_write", arguments: { proposalId: "00000000-0000-4000-8000-000000000001", approved: false } });
+    assert.equal(rejected.isError, true);
   } finally {
     await client.close();
     await server.close();

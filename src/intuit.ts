@@ -113,8 +113,13 @@ export async function qboRequest(
   path: string,
   init: RequestInit = {},
   query: Record<string, string> = {},
+  expectedRealmId?: string,
 ) {
   const { connection, accessToken: token } = await accessToken(userId);
+  if (expectedRealmId && connection.realmId !== expectedRealmId) {
+    throw new Error("The active QuickBooks company changed. Prepare and approve a new proposal for the intended company.");
+  }
+  init.signal?.throwIfAborted();
   const config = getConfig();
   const origin = config.qboEnvironment === "sandbox"
     ? "https://sandbox-quickbooks.api.intuit.com"

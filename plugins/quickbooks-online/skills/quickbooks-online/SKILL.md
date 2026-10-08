@@ -22,11 +22,10 @@ Use the QuickBooks Online MCP tools for company data, reports, and accounting ch
 
 ## Writes
 
-All QuickBooks changes use two steps:
-
-1. Call `qbo_prepare_write`. This validates and stores the proposed change without modifying QuickBooks.
-2. Present the returned summary to the user. Call `qbo_execute_write` only after the user explicitly approves that summary and provides the exact confirmation phrase returned by the preparation step.
-
-Never invent, shorten, or reuse a confirmation phrase. A proposal expires after 10 minutes and can execute only once. If the active company changes, prepare a new proposal.
+1. INPUT: The user's requested change and intended company. ACTION: Call `qbo_prepare_write` for one change, or `qbo_prepare_write_batch` for 1 to 50 creates/updates. EXPECTED OUTPUT: Stored proposals and the complete review. CONSTRAINT: Preparation does not modify QuickBooks. Delete and void must use individual proposals.
+2. SOURCE OF TRUTH: The preparation response. ACTION: Show the company and every proposed record, date, account, amount and changed value. Keep proposal identifiers and batch tokens internal. APPROVAL REQUIREMENT: Obtain an explicit user reply such as "Approve" or "Post these changes" after the review. Never ask the user to type a code. Never infer approval from preparation.
+3. ACTION: Call `qbo_execute_write` or `qbo_execute_write_batch` with the unchanged internal identifier/token and `approved: true`. CONSTRAINT: Execute only the exact reviewed changes. Each delete or void requires separate approval for the specific record and `destructiveApproved: true`.
+4. STOP CONDITION: Any change to the payload, company or batch, or proposal expiry. ACTION: Prepare and show a new review. APPROVAL REQUIREMENT: Obtain new approval. Proposals expire after 10 minutes and execute at most once.
+5. STOP CONDITION: Failed, interrupted or partial execution. ACTION: Report completed, failed and unattempted items. Completed writes remain posted. Check the failed item's QuickBooks outcome before any retry. Never replay an entire batch or silently reset an `executing` proposal.
 
 Do not request API keys, client secrets, refresh tokens, or database credentials in chat.

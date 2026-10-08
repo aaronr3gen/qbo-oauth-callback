@@ -26,7 +26,8 @@ The other registered redirects can remain during migration. Do not use the `tryc
 - Intuit access and refresh tokens are encrypted with AES-256-GCM before Postgres storage.
 - Refresh is serialized with a database row lock, preventing concurrent use of the same rotating Intuit refresh token.
 - QuickBooks connection links are signed, one-time, and expire after 10 minutes.
-- Writes are staged first. Execution requires a fresh proposal Id and its exact confirmation phrase.
+- Writes are staged first. The user reviews the company and full changes, then gives normal-language approval. No typed confirmation code is required.
+- One approval covers an immutable batch of up to 50 creates/updates for one company. Deletes and voids require separate approval for each record.
 - The execution tool is advertised as destructive so ChatGPT can require an additional approval.
 - Error pages and logs do not include OAuth codes, access tokens, refresh tokens, or database credentials.
 
@@ -40,8 +41,31 @@ The other registered redirects can remain during migration. Do not use the `tryc
 - `qbo_run_report`
 - `qbo_prepare_write`
 - `qbo_execute_write`
+- `qbo_prepare_write_batch`
+- `qbo_execute_write_batch`
 
 The generic read tools cover common Accounting API entities and reports. Writes support create/update for common entities and tightly restrict delete/void operations. QuickBooks still performs its own entity-specific schema and `SyncToken` validation.
+
+### Write approval
+
+1. Prepare an individual write or a batch. Preparation stores encrypted payloads and returns the complete review, including the company, record identifiers and proposed values.
+2. Show that review to the user. Accept an explicit reply such as "Approve" or "Post these changes". Keep proposal identifiers and signed batch tokens internal.
+3. Execute that exact proposal or batch with `approved: true`. For an individual delete or void, obtain separate approval for the specific record and also set `destructiveApproved: true`.
+4. Prepare and review a new proposal if any value or company changes. Approval does not extend to future batches.
+
+Proposals expire after 10 minutes. A signed batch token binds the user, company and exact ordered proposal list. The database claims every item atomically before posting. Expired, previously claimed or missing items prevent the entire batch from starting.
+
+Writes execute in order. A batch stops at its first error or its 45-second execution limit. Completed writes remain posted; a batch is not a QuickBooks transaction and has no automatic rollback. The result reports completed, failed and unattempted proposals. The database records each item status. An aborted network request can leave the failed item's QuickBooks outcome uncertain. Inspect that record before preparing any retry. A process termination can leave items in `executing`; do not retry blindly.
+
+The MCP client supplies the approval assertion. The server cannot prove that a model's `approved: true` came from a human message. Keep the client's tool approval controls enabled. Client approval prompts can remain even though this service no longer requires a typed code. See the [MCP tool interaction model](https://modelcontextprotocol.io/specification/2025-06-18/server/tools).
+
+Examples:
+
+- One invoice: prepare, review the company and invoice, obtain "Approve", then execute its internal proposal Id.
+- Fifty journal entries: prepare one batch, show all entries and amounts, obtain one batch approval, then execute the unchanged batch token.
+- Delete an invoice: prepare an individual delete, show the invoice and company, obtain separate deletion approval, then execute with both approval flags.
+
+Existing clients must refresh the tool list after deployment. The old `confirmation` argument is replaced by `approved`. No database migration or new secret is required.
 
 ## 1. Create the database
 

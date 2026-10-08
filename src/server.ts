@@ -3,7 +3,7 @@ import { z } from "zod";
 import { oauthChallenge, requireScope, type RequestIdentity } from "./auth.js";
 import { getConfig } from "./config.js";
 import { qboRequest } from "./intuit.js";
-import { executeWrite, prepareWrite, READ_ENTITIES, WRITE_ENTITIES } from "./proposals.js";
+import { executeWrite, executeWriteBatch, prepareWrite, prepareWriteBatch, MAX_BATCH_WRITES, READ_ENTITIES, WRITE_ENTITIES } from "./proposals.js";
 import { createConnectionTicket, listConnections, selectConnection } from "./store.js";
 
 const REPORTS = [
@@ -36,7 +36,7 @@ function errorResult(error: unknown, scope?: "qbo:read" | "qbo:write") {
 export function createQboMcpServer(identity: RequestIdentity) {
   const server = new McpServer({
     name: "QuickBooks Online",
-    version: "1.0.0",
+    version: "1.1.0",
   });
 
   server.registerTool("qbo_list_companies", {
@@ -111,7 +111,7 @@ export function createQboMcpServer(identity: RequestIdentity) {
   });
 
   server.registerTool("qbo_prepare_write", {
-    description: "Validate and stage a QuickBooks create, update, delete, or void. This tool does not change QuickBooks. Show the returned summary and exact confirmation phrase to the user before execution.",
+    description: "Validate and stage one QuickBooks create, update, delete, or void. Show the company and full proposed change to the user. Obtain normal-language approval such as 'Approve'. No typed code is required. Delete and void each require separate approval. This tool does not change QuickBooks.",
     inputSchema: {
       operation: writeOperation,
       entity: writeEntity,
@@ -128,17 +128,42 @@ export function createQboMcpServer(identity: RequestIdentity) {
   });
 
   server.registerTool("qbo_execute_write", {
-    description: "Execute one previously staged QuickBooks write. Call only after the user explicitly approves the staged summary and supplies the exact confirmation phrase. A proposal can execute at most once.",
+    description: "Execute one staged write only after the user reviews and explicitly approves its company and changes. Set approved=true only after that approval. For delete or void, obtain separate approval for this specific record and set destructiveApproved=true. Never infer approval from preparing a proposal. Do not ask the user to type an identifier or code. A proposal can execute at most once.",
     inputSchema: {
       proposalId: z.string().uuid(),
-      confirmation: z.string().min(1),
+      approved: z.literal(true).describe("The user explicitly approved the reviewed proposal."),
+      destructiveApproved: z.literal(true).optional().describe("Separate user approval for this specific delete or void."),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-  }, async ({ proposalId, confirmation }) => {
+  }, async ({ proposalId, approved, destructiveApproved }) => {
     try {
       requireScope(identity, "qbo:write");
-      return textResult(await executeWrite({ userId: identity.subject, proposalId, confirmation }));
+      return textResult(await executeWrite({ userId: identity.subject, proposalId, approved, destructiveApproved }));
     } catch (error) { return errorResult(error, "qbo:write"); }
+  });
+
+  server.registerTool("qbo_prepare_write_batch", {
+    title: "Prepare QuickBooks write batch",
+    description: "Stage 1 to 50 create/update changes for one active QuickBooks company. Return the complete immutable review and an internal batchToken. Show the company, every record, dates, accounts and amounts to the user, then request one normal-language approval for the entire batch. Keep batchToken internal; users do not type it. Any change needs a new batch and new approval. Delete and void must use individual proposals. This tool does not change QuickBooks.",
+    inputSchema: { writes: z.array(z.object({
+      operation: z.enum(["create", "update"]), entity: writeEntity,
+      payload: z.record(z.string(), z.unknown()).default({}),
+      id: z.string().min(1).max(128).optional(), syncToken: z.string().min(1).max(128).optional(),
+    }).strict()).min(1).max(MAX_BATCH_WRITES) },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async ({ writes }) => {
+    try { requireScope(identity, "qbo:write"); return textResult(await prepareWriteBatch({ userId: identity.subject, writes })); }
+    catch (error) { return errorResult(error, "qbo:write"); }
+  });
+
+  server.registerTool("qbo_execute_write_batch", {
+    title: "Execute approved QuickBooks write batch",
+    description: "Execute the exact previously reviewed batch after one explicit user approval, such as 'Approve' or 'Post these changes'. Set approved=true only after that approval. Pass the unchanged internal batchToken from preparation. Never infer approval from preparation or extend approval to another batch. Execution stops on the first failure and reports completed, failed and unattempted writes. Completed writes remain posted. Do not retry an uncertain write until its QuickBooks outcome is checked. A batch can execute at most once.",
+    inputSchema: { batchToken: z.string().min(1).max(8192), approved: z.literal(true) },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  }, async ({ batchToken, approved }) => {
+    try { requireScope(identity, "qbo:write"); return textResult(await executeWriteBatch({ userId: identity.subject, batchToken, approved })); }
+    catch (error) { return errorResult(error, "qbo:write"); }
   });
 
   return server;
